@@ -30,10 +30,11 @@
 | --- | --- |
 | 代码和文档 | MIT，保留 [LICENSE](LICENSE) 中的上游版权 |
 | assets 中的图片、动图、音频 | 按来源条款 as-is 随本插件分发，仅供运行本插件使用；本仓库不授予再许可，不声明为本次原创，不因代码 MIT 而扩大素材权利 |
+| docs/screenshots 中的 README 配图 | 从当前挂件重新截取，使用示例额度与消耗数据；其中的角色素材仍遵循 assets 的许可边界 |
 | vendor/smol-toml | BSD-3-Clause，保留原包许可证 |
 | Electron 与 Chromium | 安装时另外下载，保留其自带许可证和第三方声明 |
 
-见 [第三方声明](THIRD_PARTY_NOTICES.md)。发布包不包含聊天截图和历史测试截图；其中角色素材仍遵循上述素材边界。
+见 [第三方声明](THIRD_PARTY_NOTICES.md)。发布包不包含聊天截图和历史测试截图；README 配图中的角色素材仍遵循上述素材边界。
 
 ## 隐私和历史
 

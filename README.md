@@ -2,6 +2,14 @@
 
 一个跟随 Codex 桌面窗口运行的 Windows 小挂件，显示官方订阅额度或 API 余额，并在每轮对话结束后显示本轮消耗。项目基于 [dsh-whale-widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget) 的 Codex 适配分支改编。
 
+## 外观与气泡
+
+以下配图重新截取自当前挂件，完整展示角色和气泡，数值使用示例数据。
+
+| 官方订阅额度 | 上一轮对话消耗 | API / 中转站余额 |
+| --- | --- | --- |
+| <img src="docs/screenshots/subscription.png" width="260" alt="完整大肥龙与订阅额度气泡：五小时、每周剩余比例及重置次数"> | <img src="docs/screenshots/consumption.png" width="260" alt="完整大肥龙与消耗气泡：上一轮消耗 2%，吃了 12,480 token"> | <img src="docs/screenshots/api-balance.png" width="260" alt="完整大肥龙与 API 余额气泡：余额和今日已消耗"> |
+
 ## 使用
 
 1. 下载项目 ZIP 并完整解压，或克隆本仓库。
@@ -41,7 +49,7 @@ node scripts/control.mjs status
 
 代码和文档采用 [MIT License](LICENSE)。本项目保留上游作者 MeteorNOX 的版权声明。
 
-`assets/` 中的图片、动图和音频不属于 MIT 授权范围，按素材来源条款原样（as-is）随本插件分发，仅供运行本插件使用；不授予再许可，不声明为本项目原创。大肥龙图片来自用户提供的素材，采用相同的分发边界。来源及第三方声明见 [PROVENANCE.md](PROVENANCE.md) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。如有素材权利问题，请在本仓库提出 Issue。
+`assets/` 中的图片、动图和音频不属于 MIT 授权范围，按素材来源条款原样（as-is）随本插件分发，仅供运行本插件使用；不授予再许可，不声明为本项目原创。大肥龙图片来自用户提供的素材，采用相同的分发边界；README 配图中的角色素材同样遵循这些条款。来源及第三方声明见 [PROVENANCE.md](PROVENANCE.md) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。如有素材权利问题，请在本仓库提出 Issue。
 
 ## 说明
 
