@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+import os
 import re
 import struct
 import zipfile
@@ -24,6 +25,28 @@ patterns = [re.compile(r'[A-Z]:[/\\]+(?:Users[/\\]+PC(?:[/\\]|\b)|Codex_work(?:p
             re.compile(r'any' + r'router', re.I), re.compile(r'sk-[A-Za-z0-9_-]{24,}'),
             re.compile(r'codex-clipboard-[0-9a-f-]{30,}', re.I), re.compile(r'gh[pousr]_[A-Za-z0-9]{30,}')]
 removed = []
+
+def public_files():
+    """Prune private/runtime directories before inspecting their contents."""
+    for directory, dirs, names in os.walk(ROOT, topdown=True, followlinks=False):
+        parent = Path(directory)
+        retained = []
+        for dirname in sorted(dirs):
+            child = parent / dirname
+            rel = child.relative_to(ROOT)
+            if dirname in blocked - {'dist'} or dirname.startswith(('qa-', 'private-backup')):
+                continue
+            if rel.parts[0] in {'data', 'dist'} or rel.as_posix() == 'docs/images':
+                continue
+            assert not child.is_symlink(), 'Unexpected symlink: ' + rel.as_posix()
+            if child.resolve().is_relative_to(output):
+                continue
+            retained.append(dirname)
+        dirs[:] = retained
+        for filename in sorted(names):
+            file = parent / filename
+            if not file.resolve().is_relative_to(output):
+                yield file
 
 def sanitize_gif(name, data):
     """Drop non-rendering comments/XMP; retain frame data and loop controls."""
@@ -103,18 +126,9 @@ def sanitize(name, data):
     return data
 
 files = {}
-for file in sorted(ROOT.rglob('*')):
-    if not file.is_file():
-        continue
+for file in public_files():
     rel = file.relative_to(ROOT)
     name = rel.as_posix()
-    if file.resolve().is_relative_to(output):
-        continue
-    # The vendored parser's dist folder is a required runtime dependency.
-    if any(p in blocked - {'dist'} or p.startswith(('qa-', 'private-backup')) for p in rel.parts):
-        continue
-    if rel.parts[0] == 'dist' or name.startswith('docs/images/'):
-        continue
     assert not file.is_symlink(), 'Unexpected symlink: ' + name
     assert rel.parts[0] in allowed or name in root_files or len(rel.parts) == 1 and file.suffix in {'.cmd', '.command'}, 'Unexpected file: ' + name
     assert file.name not in private_names and not file.name.startswith('.env') and file.suffix.lower() not in private_ext, 'Private or binary file: ' + name
@@ -132,12 +146,28 @@ for file in sorted(ROOT.rglob('*')):
             assert not pattern.search(content), 'Privacy review required: ' + name
     files[name] = data
 
+package = json.loads(files['package.json'].decode('utf-8-sig'))
 manifest = json.loads(files['.codex-plugin/plugin.json'].decode('utf-8-sig'))
-assert manifest['name'] == 'api-balance-whale' and manifest['version'].split('+')[0] == '0.3.0'
-assert manifest['author']['name'] == 'Yang-huai406'
-for name in ['vendor/smol-toml/dist/index.js', 'desktop/ui/dashboard.js', 'desktop/ui/shape.js', 'desktop/macos/window-probe.swift', 'scripts/install-package.ps1', 'scripts/install-macos.mjs']:
+package_name, version = package['name'], package['version']
+assert re.fullmatch(r'[a-z0-9][a-z0-9._-]*', package_name), 'Invalid release package name'
+assert re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', version), 'Invalid release package version'
+assert manifest['name'] == package_name and manifest['version'] == version, 'Package and plugin metadata disagree'
+lock = json.loads(files['package-lock.json'].decode('utf-8-sig'))
+assert lock['name'] == package_name and lock['version'] == version, 'Package lock metadata disagree'
+for name in ['启动大肥龙.cmd', '停止大肥龙.cmd', 'scripts/start-widget.mjs', 'scripts/control.mjs',
+             'scripts/install-desktop.mjs', 'scripts/build-launcher.ps1', 'desktop/WhaleLauncher.cs',
+             'scripts/check-package.mjs', 'runtime/mcp.mjs', '.mcp.json']:
     assert name in files, 'Missing runtime dependency: ' + name
-assert b'pull/128' in files['README.md']
+# Keep the release dependency check aligned with the existing package checker,
+# including its direct imports and required UI/assets, without launching it.
+checker = files['scripts/check-package.mjs'].decode('utf-8-sig')
+dependencies = re.findall(r"['\"](\.\./[^'\"]+)['\"]", checker)
+assert dependencies, 'Package dependency checker has no declared dependencies'
+for dependency in dependencies:
+    resolved = (ROOT / 'scripts' / dependency).resolve()
+    assert resolved.is_relative_to(ROOT), 'Package dependency escapes root'
+    name = resolved.relative_to(ROOT).as_posix()
+    assert name in files, 'Missing runtime dependency: ' + name
 links = 0
 for name, data in files.items():
     if not name.endswith('.md') or name.startswith('vendor/') or name == 'docs/UPSTREAM-README.md':
@@ -155,26 +185,26 @@ def archive(name, selected):
     destination = output / name
     with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for relative, data in selected.items():
-            info = zipfile.ZipInfo('api-balance-whale/' + relative, (2026, 9, 29, 0, 0, 0))
+            info = zipfile.ZipInfo(package_name + '/' + relative, (2026, 10, 3, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED; info.create_system = 3
             info.external_attr = (0o100755 if relative.endswith('.command') else 0o100644) << 16
             z.writestr(info, data)
     with zipfile.ZipFile(destination) as z:
         assert z.testzip() is None
         for relative, data in selected.items():
-            assert z.read('api-balance-whale/' + relative) == data
+            assert z.read(package_name + '/' + relative) == data
     digest = hashlib.sha256(destination.read_bytes()).hexdigest()
     (output / (name + '.sha256')).write_text(digest + '  ' + name + '\n', encoding='utf-8')
     return {'name': name, 'sha256': digest, 'bytes': destination.stat().st_size, 'files': len(selected)}
 
-artifacts = [archive('api-balance-whale-v0.3(fixed).zip', {p: d for p, d in files.items() if not p.startswith(('.github/', 'tests/'))}),
-             archive('api-balance-whale-v0.3(fixed)-source.zip', files)]
-report = {'displayVersion': 'v0.3(fixed)', 'internalVersion': manifest['version'], 'status': 'release-build' if args.release_tag else 'local-test-candidate-awaiting-user-acceptance',
+artifact_base = package_name + '-v' + version
+artifacts = [archive(artifact_base + '.zip', {p: d for p, d in files.items() if not p.startswith(('.github/', 'tests/'))}),
+             archive(artifact_base + '-source.zip', files)]
+report = {'package': package_name, 'version': version, 'status': 'release-build' if args.release_tag else 'local-candidate',
           'lineEndings': 'LF for source and Mac launchers; CRLF for Windows .cmd and .ps1',
-          'releaseTag': args.release_tag, 'offlineInstaller': False, 'macOS': 'static-checks-no-hardware-acceptance', 'subscriptionLiveAccount': 'unverified',
-          'macOSPR': 'https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget/pull/128',
+          'releaseTag': args.release_tag, 'platform': 'Windows x64 portable', 'offlineInstaller': False,
           'privacyScan': 'passed-public-files-only', 'archiveIntegrity': 'passed', 'localLinksChecked': links,
-          'excluded': ['user data and credentials', 'private installation receipts', 'logs and test output', 'chat screenshots and recordings', 'legacy docs/images', 'git history and runtime caches'],
+          'excluded': ['data/ (not traversed)', 'user data and credentials', 'private installation receipts', 'logs and test output', 'chat screenshots and recordings', 'legacy docs/images', 'git history and runtime caches'],
           'mediaMetadataSanitized': removed, 'artifacts': artifacts,
           'contentHashes': {p: hashlib.sha256(d).hexdigest() for p, d in files.items()}}
 (output / 'release-manifest.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
