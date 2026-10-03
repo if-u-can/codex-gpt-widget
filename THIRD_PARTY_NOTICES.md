@@ -1,0 +1,7 @@
+# Third-party notices
+
+- **dsh-whale-widget 0.3.0-beta**, Copyright (c) 2026 MeteorNOX, MIT License. The original images, GIFs, audio files and substantial widget UI/host code are retained or adapted. See `LICENSE` and `docs/UPSTREAM-README.md`.
+- **Task completion sound A** (`assets/task-end-a.wav`) is copied unchanged from the user's local dsh-whale-widget 0.3.18. It is the original built-in `end_a` fragment; source SHA-256: `6228bbe410658a18f06e5cd42cc055570c54905dd371cb971c0a0df88c47c417`. This records its provenance and does not assign a new license to the audio.
+- **Reference sound playback logic** (`desktop/ui/reference-audio.js` and the widget's press/release scheduling) is adapted from dsh-whale-widget 0.3.18, Copyright (c) 2026 MeteorNOX, under its MIT code license. It preserves predecoded playback, audio-clock scheduling and idle suspension. This code license does not relicense audio or artwork.
+- **smol-toml 1.8.0**, Cynthia Rey and contributors, BSD-3-Clause. An unmodified copy of the published package is included in `vendor/smol-toml/`; see `vendor/smol-toml/LICENSE`. It is loaded directly so the Codex plugin does not require an npm install step.
+- **Electron 44.3.0**, Electron contributors, MIT License with bundled Chromium and third-party notices. Electron is downloaded separately by the optional desktop installer; its own license and notices are retained in the installed desktop runtime and are not replaced by this project's license.

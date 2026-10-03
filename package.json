@@ -1,0 +1,19 @@
+{
+  "name": "codex-gpt-widget",
+  "version": "0.1.0",
+  "description": "大肥龙 Codex 额度与每轮消耗桌面挂件，改编自 dsh-whale-widget",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node scripts/start-widget.mjs",
+    "desktop": "node scripts/start-widget.mjs --desktop",
+    "test": "node --test tests/*.test.mjs",
+    "install:mac": "node scripts/install-macos.mjs",
+    "uninstall:mac": "node scripts/uninstall-macos.mjs",
+    "probe:mac": "node scripts/probe-macos.mjs"
+  }
+}

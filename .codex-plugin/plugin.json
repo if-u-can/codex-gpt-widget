@@ -1,0 +1,22 @@
+{
+  "name": "codex-gpt-widget",
+  "version": "0.1.0",
+  "description": "大肥龙 Codex 桌面额度与每轮消耗挂件，改编自 dsh-whale-widget。",
+  "author": { "name": "本地改编；上游 MeteorNOX / Yang-huai406", "url": "https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget" },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "大肥龙额度挂件",
+    "shortDescription": "订阅额度、可用重置次数和对话消耗泡泡。",
+    "longDescription": "跟随 Codex 的 Windows 透明桌面挂件；保留原插件点击序列、角色、A 结束音与泡泡编辑。订阅额度来自本机官方日志，可用重置次数通过官方服务只读查询；结算显示额度差或 API 金额和已观测 token。",
+    "developerName": "本地改编（保留上游署名）",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "defaultPrompt": ["查看大肥龙记录的 Codex 订阅额度", "查询本机已观测用量", "显示大肥龙挂件"],
+    "brandColor": "#7661a8",
+    "composerIcon": "./assets/gpt-niang.png",
+    "logo": "./assets/gpt-niang.png"
+  },
+  "license": "MIT",
+  "keywords": ["codex", "quota", "usage", "gpt-widget"]
+}
