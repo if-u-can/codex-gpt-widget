@@ -191,7 +191,7 @@ async function showStatusDialog() {
   try { provider = dispatcher?.whale?.config?.publicInfo() || {}; } catch {}
   const lines = [
     '平台：' + process.platform,
-    '跟随模式：' + (lastHost?.followMode || (lastHost?.nativeFollowing ? 'native' : '等待 Codex')),
+    '跟随模式：' + (lastHost?.followMode || (lastHost?.hostAlive && !hostHasWindow(lastHost) ? '后台运行' : lastHost?.nativeFollowing ? 'native' : '等待 Codex')),
     'Codex PID：' + (lastHost?.hostPid || '未检测到'),
     '挂件窗口：' + (window?.isVisible?.() ? '显示' : '隐藏'),
     '桌面模式：' + desktopMode,
@@ -261,7 +261,7 @@ async function setHost(host) {
     return;
   }
   if (!window || window.isDestroyed()) return;
-  if (!previousHost?.hostAlive || previousHost.hostPid !== host.hostPid) updateTray();
+  if (!previousHost?.hostAlive || previousHost.hostPid !== host.hostPid || hostHasWindow(previousHost) !== hostHasWindow(host)) updateTray();
   if (host.attached) markStartup('attached');
   // Native events own position. Only Electron may resize its non-resizable
   // viewport; it updates the corresponding native min/max tracking sizes.
@@ -282,6 +282,11 @@ async function setHost(host) {
   visibility();
   if (visibilityController.observeNativeVisibility()) diagnose('native-window-hidden');
 }
+
+// A live Codex process without a main window is backgrounded, not disconnected.
+// Keep that distinct from hostAlive so the tray and status dialog never present
+// a running background process as a lost connection.
+function hostHasWindow(host) { return !!(host && host.hostAlive && host.window && host.window !== '0'); }
 
 async function importLegacyStorage() {
   const marker = path.join(dataDir, 'legacy-storage-imported.json');
@@ -518,7 +523,8 @@ function setMode(mode) {
 }
 function updateTray() {
   if (!tray) return;
-  tray.setToolTip('大肥龙 · Codex 额度挂件 · ' + (desktopMode === 'standalone' ? '独立桌面' : lastHost?.hostAlive ? '跟随 Codex' : '未连接 Codex，等待启动'));
+  const followState = !lastHost?.hostAlive ? '未连接 Codex，等待启动' : hostHasWindow(lastHost) ? '跟随 Codex' : 'Codex 后台运行';
+  tray.setToolTip('大肥龙 · Codex 额度挂件 · ' + (desktopMode === 'standalone' ? '独立桌面' : followState));
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示 / 隐藏大肥龙', click: toggle }, { label: '恢复显示大肥龙', click: show },
     { label: '进入桌面', type: 'radio', checked: desktopMode === 'standalone', click: () => setMode('standalone') },

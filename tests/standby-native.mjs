@@ -86,6 +86,15 @@ async function closeHost(host) {
   await wait(() => host.child.exitCode !== null, 'isolated host exit');
   fs.writeFileSync(pidFile, '0');
 }
+async function hostCommand(host, command) {
+  await new Promise((resolve, reject) => {
+    const socket = net.createConnection(host.ready.pipe);
+    socket.setTimeout(3000, () => { socket.destroy(); reject(new Error('Fixture ' + command + ' timeout')); });
+    socket.on('error', reject);
+    socket.on('connect', () => socket.write(JSON.stringify({ id: command, command }) + '\n'));
+    socket.on('data', () => { socket.destroy(); resolve(); });
+  });
+}
 
 try {
   supervisor = spawn(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(nativeDir, 'supervisor.ps1'), '-DataDir', data], { env, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
@@ -107,6 +116,21 @@ try {
   assert.equal(read('runtime.json').pid, companionPid);
   assert.equal(read('follow-state.json').state.attached, true);
   saveState('first-host-following', following);
+  // Closing only the window while the Codex process stays alive must read as
+  // backgrounded, never as a lost connection: hostAlive stays true, the widget
+  // hides, and no new waiting notice is emitted.
+  const notificationsBeforeHide = following.connectionNotifications.length;
+  await hostCommand(first, 'hide');
+  const background = await wait(async () => { const s = await status(); return s.rendererReady && s.hostAlive && !s.waitingForCodex && !s.visible && !s.nativeFollowing && s.hostWindow === '0' && s; }, 'backgrounded without a window');
+  assert.equal(alive(companionPid), true);
+  assert.equal(alive(supervisor.pid), true);
+  assert.equal(background.connectionNotifications.length, notificationsBeforeHide);
+  saveState('host-window-hidden-background', background);
+  // The same window returning re-attaches silently on the existing path.
+  await hostCommand(first, 'show');
+  const reshown = await wait(async () => { const s = await status(); return s.rendererReady && s.hostAlive && !s.waitingForCodex && s.visible && s.nativeFollowing && s.hostWindow === first.ready.handle && s; }, 're-attach after the window returns');
+  assert.equal(reshown.connectionNotifications.length, notificationsBeforeHide);
+  saveState('host-window-reshown', reshown);
   await closeHost(first);
   const closed = await wait(async () => { const s = await status(); return s.rendererReady && s.waitingForCodex && !s.visible && !s.nativeFollowing && s.hostWindow === '0' && s; }, 'owner close returns to hidden waiting');
   assert.equal(read('runtime.json').pid, companionPid);

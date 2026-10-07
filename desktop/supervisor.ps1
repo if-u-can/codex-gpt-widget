@@ -55,8 +55,9 @@ try {
     while (!$whaleStop.WaitOne(100)) {
         $whaleNow = [DateTime]::UtcNow
         $whaleState = [WhaleWindows]::Probe()
-        # A surviving background process without a main window is disconnected.
-        $whaleState['hostAlive'] = [bool]$whaleState.hostAlive -and $whaleState.window -ne '0'
+        # hostAlive describes the Codex process itself. A live process whose main
+        # window is gone is backgrounded, not disconnected: keep hostAlive true,
+        # report no window, and let the companion hide until a window returns.
         if (!$whaleState.hostAlive) { $whaleState['hostPid']=0; $whaleState['visible']=$false }
         $whaleConfig = Read-WhaleJson (Join-Path $DataDir 'follow-config.json')
         $whaleStandalone = $whaleConfig.mode -eq 'standalone'

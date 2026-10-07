@@ -83,6 +83,34 @@ test('a stale host packet cannot resurrect a closed connection', async () => {
   assert.equal(f.visible(), false); assert.equal(f.state.lastHost.hostAlive, false);
 });
 
+test('a live host without a window is backgrounded, and only a real exit requests a waiting notice', async () => {
+  const f = fixture();
+  await f.host({ serial: 1 }); f.flush();
+  assert.equal(f.visible(), true);
+  // Codex window closed while the process keeps running: hostAlive stays true,
+  // the widget hides, and the tray/notification never read it as a disconnect.
+  await f.host({ serial: 2, window: '0', visible: false, attached: false, nativeFollowing: false }); f.flush();
+  assert.equal(f.visible(), false);
+  assert.equal(f.state.lastHost.hostAlive, true);
+  assert.equal(f.state.lastHost.window, '0');
+  assert.equal(f.state.lastHost.attached, false);
+  assert.equal(f.state.lastHost.nativeFollowing, false);
+  assert.equal(f.calls.includes('quit'), false);
+  assert.equal(f.calls.filter(c => c[0] === 'notification').length, 0);
+  // The process really exits: the existing waiting behaviour still fires once.
+  for (let serial = 3; serial < 7; serial++) { await f.host({ serial, hostAlive: false }); f.flush(); }
+  assert.equal(f.state.lastHost.hostAlive, false);
+  assert.equal(f.calls.filter(c => c[0] === 'notification').length, 1);
+  assert.equal(f.calls.filter(c => c[0] === 'notification')[0][1], '未连接 Codex，等待启动');
+  // A window reappears on a fresh host PID and following resumes without a new notice.
+  await f.host({ serial: 9, hostPid: 33, window: '303' }); f.flush();
+  assert.equal(f.visible(), true);
+  assert.equal(f.state.owner, '303');
+  assert.equal(f.state.lastHost.hostPid, 33);
+  assert.equal(f.calls.filter(c => c[0] === 'notification').length, 1);
+  assert.equal(f.calls.includes('quit'), false);
+});
+
 test('standalone preserves desktop visibility without Codex and emits no waiting notice', async () => {
   const f = fixture({ standalone: true });
   await f.host({ hostAlive: false, nativeFollowing: false, attached: false }); f.flush();

@@ -27,6 +27,8 @@ readline.createInterface({ input: socket }).on('line', async line => {
       send({ id: request.id, cancelled: result.canceled });
     }
     if (request.command === 'close') { send({ id: request.id, ok: true }); app.quit(); }
+    if (request.command === 'hide') { host.hide(); send({ id: request.id, ok: true }); }
+    if (request.command === 'show') { host.show(); send({ id: request.id, ok: true }); }
   } catch (error) { send({ error: error.message }); }
 });
 });
