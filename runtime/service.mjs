@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { ConfigStore } from './config.mjs';
@@ -25,6 +26,11 @@ export class WhaleService {
     this.closed = false; this.restored = false; this.recoveryActive = new Set();
     this.cancelledOutcomes = new Set();
     this.recoveryError = '';
+    this.usageSettingsCache = null;
+    // lastTurn() is polled once per second by the widget; both file reads on
+    // that path are cached by content stamp and refreshed only on real change.
+    this.lastTurnFileCache = null;
+    this.subscriptionIdentityCache = null;
   }
   scope(c, currency) { return c.accountId + '-' + currency; }
   balanceIdentity(c) {
@@ -115,9 +121,19 @@ export class WhaleService {
     const scope = this.activeScope?.startsWith(c.accountId + '-') ? this.activeScope : this.scope(c, c.setting.currency);
     return { ...this.ledger.records(scope), currency: scope.slice(-3), settings: this.readUsageSettings() };
   }
-  readUsageSettings() {
+  usageSettingsFileJson() {
+    let stamp = 'absent';
+    try { const s = fs.statSync(this.usageSettingsFile); stamp = s.mtimeMs + ':' + s.size; } catch {}
+    // Clone on every serve: readUsageSettings merges by shallow spread, so
+    // returned settings alias these nested arrays; the cached copy stays pristine.
+    if (this.usageSettingsCache?.stamp === stamp) return structuredClone(this.usageSettingsCache.saved);
     const saved = readJson(this.usageSettingsFile, {});
-    const defaults = usageDefaults(), stock = usageDefaults();
+    this.usageSettingsCache = { stamp, saved };
+    return structuredClone(saved);
+  }
+  readUsageSettings() {
+    const saved = this.usageSettingsFileJson();
+    const stock = usageDefaults(), defaults = structuredClone(stock);
     const dashboardUrl = this.config.resolve().dashboardUrl;
     stock.alert.lines.find(line => line.type === 'link').url = dashboardUrl;
     defaults.alert.lines.find(line => line.type === 'link').url = dashboardUrl;
@@ -140,7 +156,7 @@ export class WhaleService {
     // that known default with the template; retain all independently edited URLs.
     const shippedAlertLinks = [dashboardUrl, 'https://platform.openai.com/settings/organization/billing/overview'];
     if (shippedAlertLinks.some(url => isDeepStrictEqual(alertLines, oldAlert.map(line => line.type === 'link' ? { ...line, url } : line)))) defaults.alert.lines = stock.alert.lines;
-    if (defaults.budget.msg === '今日已观测用量达到 {currency}{amount}') defaults.budget.msg = usageDefaults().budget.msg;
+    if (defaults.budget.msg === '今日已观测用量达到 {currency}{amount}') defaults.budget.msg = stock.budget.msg;
     delete defaults.outcomeNotice;
     return defaults;
   }
@@ -150,14 +166,32 @@ export class WhaleService {
     for (const key of Object.keys(result)) if (patch[key] && typeof patch[key] === 'object') result[key] = { ...result[key], ...patch[key] };
     for (const [key, field] of [['alert', 'below'], ['budget', 'amount']]) if (!Number.isFinite(Number(result[key][field])) || Number(result[key][field]) < 0) throw new Error('提醒阈值须为非负数字');
     writeJson(this.usageSettingsFile, result);
+    this.usageSettingsCache = null;
     return { ok: true, settings: result };
   }
+  lastTurnFileJson() {
+    let stamp = 'absent';
+    try { const s = fs.statSync(this.lastFile); stamp = s.mtimeMs + ':' + s.size; } catch {}
+    if (this.lastTurnFileCache?.stamp === stamp) return this.lastTurnFileCache.value;
+    const value = readJson(this.lastFile, { ok: true, seq: 0, turn: null, amount: null, tokens: null, ts: null });
+    this.lastTurnFileCache = { stamp, value };
+    return value;
+  }
+  subscriptionIdentity(c) {
+    let authStamp = 'absent';
+    try { const s = fs.statSync(path.join(this.config.codexHome, 'auth.json')); authStamp = s.mtimeMs + ':' + s.size; } catch {}
+    const key = c.accountId + '|' + authStamp;
+    if (this.subscriptionIdentityCache?.key === key) return this.subscriptionIdentityCache.value;
+    const value = subscriptionQuotaContext(this.config, c).identity;
+    this.subscriptionIdentityCache = { key, value };
+    return value;
+  }
   lastTurn() {
-    const last = readJson(this.lastFile, { ok: true, seq: 0, turn: null, amount: null, tokens: null, ts: null });
+    const last = this.lastTurnFileJson();
     const c = this.config.resolve();
     if (last.accountId && last.accountId !== c.accountId ||
         (last.quotaDelta || last.source === 'subscription-quota-interval') && !last.quotaAccountId ||
-        last.quotaAccountId && last.quotaAccountId !== subscriptionQuotaContext(this.config, c).identity) return { ok: true, seq: last.seq, turn: null, amount: null, tokens: null, ts: null };
+        last.quotaAccountId && last.quotaAccountId !== this.subscriptionIdentity(c)) return { ok: true, seq: last.seq, turn: null, amount: null, tokens: null, ts: null };
     const { quotaAccountId: _localIdentity, ...visible } = last;
     return visible;
   }
@@ -360,7 +394,7 @@ export class WhaleService {
     const event = this.ledger.revise(scope, id, patch);
     if (!event) return;
     const last = readJson(this.lastFile, { seq: 0 });
-    if (last.id === id) writeJson(this.lastFile, { ...last, ...event, seq: last.seq, amount: event.cost });
+    if (last.id === id) { writeJson(this.lastFile, { ...last, ...event, seq: last.seq, amount: event.cost }); this.lastTurnFileCache = null; }
   }
   markCostUnknown(scope, id) {
     const event = this.ledger.find(scope, { id });
@@ -402,7 +436,7 @@ export class WhaleService {
       }
     }
     const last=readJson(this.lastFile,{});
-    if(last.id===meta.id&&last.outcome==='failed')writeJson(this.lastFile,{...last,...patch,notify:patch.notify&&!last.historical});
+    if(last.id===meta.id&&last.outcome==='failed'){writeJson(this.lastFile,{...last,...patch,notify:patch.notify&&!last.historical});this.lastTurnFileCache=null;}
   }
   queueNotice(scope, event) {
     if (!event.notify || this.closed) return;
@@ -426,11 +460,12 @@ export class WhaleService {
     try { config = this.config.resolve(); } catch { return; }
     if (config.accountId !== event.accountId) return;
     if ((event.quotaDelta || event.source === 'subscription-quota-interval') && !event.quotaAccountId ||
-        event.quotaAccountId && event.quotaAccountId !== subscriptionQuotaContext(this.config, config).identity) return;
+        event.quotaAccountId && event.quotaAccountId !== this.subscriptionIdentity(config)) return;
     if (!['success','cancelled','failed'].includes(event.completionKind)) return;
     const seq = Number(readJson(this.lastFile, { seq: 0 }).seq || 0) + 1;
     this.ledger.revise(scope, id, { noticePublished: true });
     writeJson(this.lastFile, { ...event, seq, amount: event.cost, notificationAt: Date.now() });
+    this.lastTurnFileCache = null;
   }
   async close({ timeoutMs = 3000 } = {}) {
     this.closed = true; clearTimeout(this.costTimer); this.costTimer = null;

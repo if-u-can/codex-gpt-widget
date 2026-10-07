@@ -16,6 +16,11 @@ export const DEFAULT_CONFIG = {
 // presence flags and submits a value only when the user explicitly changes it.
 export const PRIVATE_SETTING_FIELDS = Object.freeze(['baseUrl', 'keyEnv', 'profile', 'projectDir', 'dashboardUrl', 'balancePath', 'balanceField', 'usedField', 'models']);
 
+function fileStamp(file) {
+  try { const s = fs.statSync(file); return s.mtimeMs + ':' + s.size; }
+  catch { return 'absent'; }
+}
+
 function cleanUrl(value, { allowEmpty = false } = {}) {
   if (!value && allowEmpty) return '';
   let u;
@@ -74,8 +79,21 @@ export class ConfigStore {
   constructor({ dataDir = DATA_HOME, codexHome = CODEX_HOME, env = process.env } = {}) {
     this.dataDir = dataDir; this.codexHome = codexHome; this.env = env;
     this.file = path.join(dataDir, 'api-settings.json');
+    // resolve() runs on hot paths (balance reads, usage polling, the 3 s
+    // session monitor). Cache both layers; every input file stamp and every
+    // environment variable the resolution actually reads participates in the
+    // invalidation key, and save() bumps the revision for same-tick writes.
+    this.revision = 0;
+    this.loadCache = null;
+    this.resolveCache = null;
   }
-  load() { return validateConfig(readJson(this.file, DEFAULT_CONFIG)); }
+  load() {
+    const stamp = this.revision + '|' + fileStamp(this.file);
+    if (this.loadCache?.stamp === stamp) return this.loadCache.value;
+    const value = validateConfig(readJson(this.file, DEFAULT_CONFIG));
+    this.loadCache = { stamp, value };
+    return value;
+  }
   save(patch) {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('设置必须是 JSON 对象');
     if (Object.keys(patch).some(k => /secret|token|api.?key|password/i.test(k) && k !== 'keyEnv')) throw new Error('请填写密钥环境变量名；插件设置中不保存密钥');
@@ -88,7 +106,9 @@ export class ConfigStore {
       else input.models[update.model] = update.prices;
     }
     const c = validateConfig(input);
-    writeJson(this.file, c); return c;
+    writeJson(this.file, c);
+    this.revision++; this.loadCache = null; this.resolveCache = null;
+    return c;
   }
   settingsInfo() {
     const current = this.load(), settings = {}, configured = {};
@@ -101,6 +121,19 @@ export class ConfigStore {
   resolve() {
     const setting = this.load();
     const file = path.join(this.codexHome, 'config.toml');
+    const projectFile = setting.projectDir ? path.join(path.resolve(setting.projectDir), '.codex', 'config.toml') : '';
+    const authFile = path.join(this.codexHome, 'auth.json');
+    const stamp = [this.revision, fileStamp(this.file), fileStamp(file), projectFile ? fileStamp(projectFile) : '-', fileStamp(authFile)].join('|');
+    const cached = this.resolveCache;
+    if (cached && cached.stamp === stamp && cached.envDeps.every(name => this.env[name] === cached.envValues[name])) return cached.value;
+    const { resolved, envDeps } = this.resolveUncached(setting, file);
+    this.resolveCache = { stamp, envDeps, envValues: Object.fromEntries(envDeps.map(name => [name, this.env[name]])), value: resolved };
+    return resolved;
+  }
+  resolveUncached(setting, file) {
+    // Every environment variable read below must join envDeps; the cache
+    // compares their live values before serving a stored resolution.
+    const envDeps = new Set(['CODEX_PROFILE', 'OPENAI_BASE_URL', 'OPENAI_API_KEY']);
     let config = {};
     if (fs.existsSync(file)) {
       try { config = parse(fs.readFileSync(file, 'utf8')); }
@@ -134,6 +167,7 @@ export class ConfigStore {
     if (!setting.keyEnv && new URL(baseUrl).origin !== new URL(originalBase).origin) throw new Error('更换 API 域名时请指定该服务自己的密钥环境变量，不能复用原服务密钥');
     let key = '', keySource = 'none';
     const envName = setting.keyEnv || provider.env_key || '';
+    if (envName) envDeps.add(envName);
     if (envName && this.env[envName]) { key = this.env[envName]; keySource = 'environment'; }
     else if (!setting.keyEnv && provider.experimental_bearer_token) { key = provider.experimental_bearer_token; keySource = 'codex-provider'; }
     else if (!setting.keyEnv && !provider.env_key) {
@@ -149,7 +183,7 @@ export class ConfigStore {
     const host = new URL(baseUrl).hostname;
     const providerName = '当前 API';
     const dashboardUrl = setting.dashboardUrl || (host === 'api.openai.com' ? 'https://platform.openai.com/settings/organization/billing/overview' : new URL(baseUrl).origin);
-    return { setting, id, model: effective.model || '', profileName, providerName, baseUrl, key, keySource, accountId, dashboardUrl };
+    return { resolved: { setting, id, model: effective.model || '', profileName, providerName, baseUrl, key, keySource, accountId, dashboardUrl }, envDeps: [...envDeps] };
   }
   publicInfo() {
     const c = this.resolve();
